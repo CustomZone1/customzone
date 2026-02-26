@@ -1,0 +1,12 @@
+{
+  "users": [
+    {
+      "id": "38d5150c-04fa-4d56-aa97-b2ba11eb4a52",
+      "username": "bharat21kwal",
+      "usernameLower": "bharat21kwal",
+      "passwordSalt": "2fcfd0ac1052407a18a5ada2c8e061f8",
+      "passwordHash": "fa89fd296f28f0373286d3ff6fa5323354c61ec5b47d54f269157c92a4b50c1c85d6622a113e236258b640cfaa9d3ed3e6c717d01c275e8e37785d89fc9960bb",
+      "createdAt": "2026-02-23T13:25:08.656Z"
+    }
+  ]
+}

@@ -1,0 +1,129 @@
+{
+  "tournaments": [
+    {
+      "id": "ebaba5e7-a745-42b9-a920-da1245ab5f03",
+      "game": "Free Fire",
+      "matchType": "BR",
+      "brMode": "SOLO",
+      "brPrizeType": "BOTH",
+      "manualSoldSlots": 0,
+      "formatInfo": "BR Solo: 48 players.",
+      "rules": "",
+      "prizePool": 4000,
+      "winningPrize": 3000,
+      "perKillPrize": 20,
+      "additionalInfo": "",
+      "name": "BOOYAH + PER KILL",
+      "dateTime": "2026-02-28T11:30:00.000Z",
+      "entryFee": 75,
+      "maxSlots": 48,
+      "bookedCount": 0,
+      "status": "OPEN"
+    },
+    {
+      "id": "474abbad-e60e-49eb-9811-62489bec438d",
+      "game": "Free Fire",
+      "matchType": "CS",
+      "brMode": null,
+      "brPrizeType": null,
+      "manualSoldSlots": 0,
+      "formatInfo": "Clash Squad custom room format.",
+      "rules": "",
+      "prizePool": 2500,
+      "winningPrize": 2500,
+      "perKillPrize": 0,
+      "additionalInfo": "",
+      "name": "CS",
+      "dateTime": "2026-03-01T10:00:00.000Z",
+      "entryFee": 125,
+      "maxSlots": 25,
+      "bookedCount": 0,
+      "status": "OPEN"
+    },
+    {
+      "id": "63ad4779-a5bd-46df-8df9-f082db584a22",
+      "game": "Free Fire",
+      "matchType": "CS",
+      "brMode": null,
+      "brPrizeType": null,
+      "manualSoldSlots": 0,
+      "formatInfo": "Clash Squad custom room format.",
+      "rules": "",
+      "prizePool": 3000,
+      "winningPrize": 3000,
+      "perKillPrize": 0,
+      "additionalInfo": "",
+      "name": "ABC",
+      "dateTime": "2026-02-25T13:00:00.000Z",
+      "entryFee": 500,
+      "maxSlots": 12,
+      "bookedCount": 1,
+      "status": "OPEN"
+    },
+    {
+      "id": "81c10b5e-8c6f-4425-9a79-00eb7274c8f2",
+      "game": "Free Fire",
+      "matchType": "BR",
+      "brMode": "SOLO",
+      "brPrizeType": "BOOYAH",
+      "manualSoldSlots": 0,
+      "formatInfo": "BR Solo: 48 players.",
+      "rules": "",
+      "prizePool": 800,
+      "winningPrize": 800,
+      "perKillPrize": 0,
+      "additionalInfo": "",
+      "name": "PYRAMID OF PROS",
+      "dateTime": "2026-02-28T12:00:00.000Z",
+      "entryFee": 30,
+      "maxSlots": 48,
+      "bookedCount": 2,
+      "status": "OPEN",
+      "room": {
+        "id": "7474574576",
+        "pass": "777"
+      }
+    }
+  ],
+  "bookings": [
+    {
+      "id": "03e6ceca-7b1d-4059-b4ca-0dc0fe938bbf",
+      "tournamentId": "81c10b5e-8c6f-4425-9a79-00eb7274c8f2",
+      "userId": "38d5150c-04fa-4d56-aa97-b2ba11eb4a52",
+      "username": "bharat21kwal",
+      "playerName": "bharat21kwal",
+      "teamMembers": [
+        "bharat21kwal"
+      ],
+      "teamSize": 1,
+      "slotNumber": 1,
+      "createdAt": "2026-02-24T06:55:18.291Z"
+    },
+    {
+      "id": "e49a9c06-5c0a-4868-aa27-22c5b5bf523c",
+      "tournamentId": "81c10b5e-8c6f-4425-9a79-00eb7274c8f2",
+      "userId": "38d5150c-04fa-4d56-aa97-b2ba11eb4a52",
+      "username": "bharat21kwal",
+      "playerName": "ind anay",
+      "teamMembers": [
+        "ind anay"
+      ],
+      "teamSize": 1,
+      "slotNumber": 2,
+      "createdAt": "2026-02-24T07:07:54.741Z"
+    },
+    {
+      "id": "eee48a77-9231-4266-b90b-2c9dc213e5c5",
+      "tournamentId": "63ad4779-a5bd-46df-8df9-f082db584a22",
+      "userId": "38d5150c-04fa-4d56-aa97-b2ba11eb4a52",
+      "username": "bharat21kwal",
+      "playerName": "DOMINATOR",
+      "teamMembers": [
+        "DOMINATOR"
+      ],
+      "teamSize": 1,
+      "slotNumber": 1,
+      "createdAt": "2026-02-24T09:01:09.562Z"
+    }
+  ]
+}

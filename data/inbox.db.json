@@ -1,0 +1,22 @@
+{
+  "messages": [
+    {
+      "id": "de70118d-e247-4dbc-924a-a25bf80f02a0",
+      "userId": "38d5150c-04fa-4d56-aa97-b2ba11eb4a52",
+      "type": "RESULT",
+      "title": "Prize Added",
+      "message": "Prize sent by admin to @bharat21kwal\nAmount: Rs 1000",
+      "createdAt": "2026-02-26T02:52:23.857Z",
+      "readAt": "2026-02-26T03:14:18.496Z"
+    },
+    {
+      "id": "4c0c7256-4349-4e39-a436-a0862a770d9f",
+      "userId": "38d5150c-04fa-4d56-aa97-b2ba11eb4a52",
+      "type": "WALLET",
+      "title": "Deposit Added",
+      "message": "Your deposit has been verified and added.\nAmount: Rs 1000\nTxn ID: as",
+      "createdAt": "2026-02-25T07:47:43.703Z",
+      "readAt": "2026-02-26T03:14:18.496Z"
+    }
+  ]
+}
