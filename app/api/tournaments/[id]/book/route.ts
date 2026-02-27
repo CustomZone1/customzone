@@ -1,13 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabaseServer";
 
-import {
-  updateBookingTeamMembers,
-  listTournamentBookings,
-  listUserBookings,
-  findUserBooking,
-} from "@/lib/server/tournamentStore";
-
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -15,25 +8,57 @@ type Context = {
   params: Promise<{ id: string }>;
 };
 
+function mapBooking(row: any) {
+  return {
+    id: row.id,
+    tournamentId: row.tournament_id,
+    userId: row.user_id,
+    username: row.username ?? undefined,
+    playerName: row.player_name ?? "",
+    teamMembers: Array.isArray(row.team_members) ? row.team_members : [],
+    teamSize: Number(row.team_size ?? 1),
+    slotNumber: Number(row.slot_number ?? 0),
+    createdAt: row.created_at,
+    status: row.status ?? undefined,
+  };
+}
+
 export async function GET(req: Request, context: Context) {
-  // Keep existing JSON-based GET for now (safe)
   const { id } = await context.params;
+
   const url = new URL(req.url);
   const userId = String(url.searchParams.get("userId") ?? "").trim();
   const username = String(url.searchParams.get("username") ?? "").trim();
   const includeAll = url.searchParams.get("all") === "1";
 
+  // If userId/username provided, return their booking (or list if all=1)
   if (userId || username) {
-    if (includeAll) {
-      const bookings = await listUserBookings(id, userId, username);
-      return NextResponse.json({ bookings });
-    }
-    const booking = await findUserBooking(id, userId, username);
-    return NextResponse.json({ booking });
+    let q = supabase.from("bookings").select("*").eq("tournament_id", id);
+
+    if (userId) q = q.eq("user_id", userId);
+    if (!userId && username) q = q.ilike("username", username); // fallback
+
+    q = q.order("slot_number", { ascending: true });
+
+    const { data, error } = await q;
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    const mapped = (data ?? []).map(mapBooking);
+
+    if (includeAll) return NextResponse.json({ bookings: mapped });
+    return NextResponse.json({ booking: mapped[0] ?? null });
   }
 
-  const bookings = await listTournamentBookings(id);
-  return NextResponse.json({ bookings });
+  // Admin / general list
+  const { data, error } = await supabase
+    .from("bookings")
+    .select("*")
+    .eq("tournament_id", id)
+    .order("slot_number", { ascending: true });
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  return NextResponse.json({ bookings: (data ?? []).map(mapBooking) });
 }
 
 export async function POST(req: Request, context: Context) {
@@ -46,43 +71,15 @@ export async function POST(req: Request, context: Context) {
     body = null;
   }
 
-  const mode = String(body?.mode ?? "").toLowerCase();
   const userId = String(body?.userId ?? "").trim();
   const username = String(body?.username ?? "").trim();
-
-  // Keep team update on JSON for now
-  if (mode === "update-team") {
-    if (!userId) {
-      return NextResponse.json({ error: "userId is required." }, { status: 400 });
-    }
-    const bookingId = String(body?.bookingId ?? "").trim();
-    const teamMembers = Array.isArray(body?.teamMembers)
-      ? body.teamMembers.map((v: any) => String(v ?? ""))
-      : [];
-    const result = await updateBookingTeamMembers(
-      tournamentId,
-      userId,
-      bookingId,
-      teamMembers
-    );
-    if (!result.ok) {
-      return NextResponse.json({ error: result.reason }, { status: 400 });
-    }
-    return NextResponse.json({ booking: result.booking });
-  }
-
-  // New booking (MIGRATED TO SUPABASE)
   const playerName = String(body?.playerName ?? "").trim();
 
-  if (!playerName) {
+  if (!userId || !playerName) {
     return NextResponse.json(
       { error: "Invalid booking request. playerName and userId are required." },
       { status: 400 }
     );
-  }
-
-  if (!userId) {
-    return NextResponse.json({ error: "userId is required." }, { status: 400 });
   }
 
   const teamMembers = Array.isArray(body?.teamMembers)
@@ -97,29 +94,14 @@ export async function POST(req: Request, context: Context) {
     p_username: username || null,
   });
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   if (!data?.ok) {
     const code = String(data?.code ?? "BOOKING_FAILED");
-
-    const message =
-      code === "INSUFFICIENT_BALANCE"
-        ? "Insufficient wallet balance."
-        : code === "SOLD_OUT"
-        ? "This tournament is full."
-        : code === "TEAM_MEMBER_ALREADY_BOOKED"
-        ? "One or more team members are already booked in this tournament."
-        : code === "BOOKING_CLOSED_ROOM_PUBLISHED"
-        ? "Booking is closed because Room ID and Password are already published."
-        : code === "TOURNAMENT_NOT_FOUND"
-        ? "Tournament not found."
-        : "Booking failed.";
-
-    return NextResponse.json({ error: message, code }, { status: 400 });
+    return NextResponse.json({ error: code, code }, { status: 400 });
   }
 
+  // Important: return bookingId/slot so frontend can continue
   return NextResponse.json({
     booking: {
       id: data.bookingId,
