@@ -1,6 +1,14 @@
 {
   "messages": [
     {
+      "id": "2aad0afd-918e-4056-87c1-6c2f63d3fb3e",
+      "userId": "38d5150c-04fa-4d56-aa97-b2ba11eb4a52",
+      "type": "SYSTEM",
+      "title": "Slot Booked: BOOYAH + PER KILL",
+      "message": "Best of luck for your match.\nPlease play fair and follow all tournament rules.\nSlot No: #1\nIn-game name(s): aa",
+      "createdAt": "2026-02-27T06:27:05.344Z"
+    },
+    {
       "id": "de70118d-e247-4dbc-924a-a25bf80f02a0",
       "userId": "38d5150c-04fa-4d56-aa97-b2ba11eb4a52",
       "type": "RESULT",

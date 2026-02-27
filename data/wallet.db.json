@@ -26,8 +26,15 @@
   "userWallets": [
     {
       "userId": "38d5150c-04fa-4d56-aa97-b2ba11eb4a52",
-      "balance": 2032,
+      "balance": 1957,
       "txns": [
+        {
+          "id": "55efc304-b5d7-47eb-85cf-edadae13760d",
+          "type": "DEBIT",
+          "amount": 75,
+          "note": "Entry fee - BOOYAH + PER KILL",
+          "createdAt": "2026-02-27T06:27:05.313Z"
+        },
         {
           "id": "fbd2c725-f6d6-4c45-8574-1849761cfc22",
           "type": "CREDIT",

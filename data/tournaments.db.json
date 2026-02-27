@@ -17,7 +17,7 @@
       "dateTime": "2026-02-28T11:30:00.000Z",
       "entryFee": 75,
       "maxSlots": 48,
-      "bookedCount": 0,
+      "bookedCount": 1,
       "status": "OPEN"
     },
     {
@@ -124,6 +124,19 @@
       "teamSize": 1,
       "slotNumber": 1,
       "createdAt": "2026-02-24T09:01:09.562Z"
+    },
+    {
+      "id": "232a8b2d-5b59-4c56-b5fc-d9c14a62a413",
+      "tournamentId": "ebaba5e7-a745-42b9-a920-da1245ab5f03",
+      "userId": "38d5150c-04fa-4d56-aa97-b2ba11eb4a52",
+      "username": "bharat21kwal",
+      "playerName": "aa",
+      "teamMembers": [
+        "aa"
+      ],
+      "teamSize": 1,
+      "slotNumber": 1,
+      "createdAt": "2026-02-27T06:27:05.343Z"
     }
   ]
 }
