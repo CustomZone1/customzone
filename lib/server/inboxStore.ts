@@ -1,5 +1,4 @@
-import { promises as fs } from "fs";
-import path from "path";
+import { supabase } from "@/lib/supabaseServer";
 
 export type InboxMessageType = "ROOM" | "WALLET" | "RESULT" | "SYSTEM";
 
@@ -13,15 +12,8 @@ export type InboxMessage = {
   readAt?: string;
 };
 
-type InboxStoreFile = {
-  messages: InboxMessage[];
-};
-
-const DB_FILE = path.join(process.cwd(), "data", "inbox.db.json");
 const DEFAULT_LIMIT = 100;
 const HARD_LIMIT = 300;
-
-let writeQueue: Promise<void> = Promise.resolve();
 
 function normalizeType(raw: unknown): InboxMessageType {
   const value = String(raw ?? "").toUpperCase();
@@ -31,64 +23,16 @@ function normalizeType(raw: unknown): InboxMessageType {
   return "SYSTEM";
 }
 
-function normalizeMessage(raw: any): InboxMessage | null {
-  const userId = String(raw?.userId ?? "").trim();
-  if (!userId) return null;
-
+function mapInboxRow(row: any): InboxMessage {
   return {
-    id: String(raw?.id ?? crypto.randomUUID()),
-    userId,
-    type: normalizeType(raw?.type),
-    title: String(raw?.title ?? "").trim() || "Update",
-    message: String(raw?.message ?? "").trim(),
-    createdAt: String(raw?.createdAt ?? new Date().toISOString()),
-    readAt: raw?.readAt ? String(raw.readAt) : undefined,
+    id: String(row?.id ?? crypto.randomUUID()),
+    userId: String(row?.user_id ?? ""),
+    type: normalizeType(row?.type),
+    title: String(row?.title ?? "").trim() || "Update",
+    message: String(row?.message ?? "").trim(),
+    createdAt: String(row?.created_at ?? new Date().toISOString()),
+    readAt: row?.read_at ? String(row.read_at) : undefined,
   };
-}
-
-async function ensureStoreFile() {
-  try {
-    await fs.access(DB_FILE);
-  } catch {
-    const initial: InboxStoreFile = { messages: [] };
-    await fs.writeFile(DB_FILE, JSON.stringify(initial, null, 2), "utf8");
-  }
-}
-
-async function readStore(): Promise<InboxStoreFile> {
-  await ensureStoreFile();
-  const raw = await fs.readFile(DB_FILE, "utf8");
-  try {
-    const parsed = JSON.parse(raw) as Partial<InboxStoreFile>;
-    const messages = Array.isArray(parsed?.messages)
-      ? parsed.messages.map(normalizeMessage).filter(Boolean) as InboxMessage[]
-      : [];
-    return { messages };
-  } catch {
-    return { messages: [] };
-  }
-}
-
-async function writeStore(data: InboxStoreFile) {
-  await ensureStoreFile();
-  await fs.writeFile(DB_FILE, JSON.stringify(data, null, 2), "utf8");
-}
-
-function withWriteLock<T>(operation: () => Promise<T>): Promise<T> {
-  const next = writeQueue.then(operation, operation);
-  writeQueue = next.then(
-    () => undefined,
-    () => undefined
-  );
-  return next;
-}
-
-function sortNewest(messages: InboxMessage[]) {
-  return [...messages].sort((a, b) => {
-    const aTime = new Date(a.createdAt).getTime();
-    const bTime = new Date(b.createdAt).getTime();
-    return bTime - aTime;
-  });
 }
 
 export async function getInbox(userIdInput: string, limitInput = DEFAULT_LIMIT) {
@@ -96,110 +40,120 @@ export async function getInbox(userIdInput: string, limitInput = DEFAULT_LIMIT) 
   if (!userId) return { messages: [], unreadCount: 0 };
 
   const limit = Math.max(1, Math.min(HARD_LIMIT, Math.floor(Number(limitInput || DEFAULT_LIMIT))));
-  const store = await readStore();
-  const mine = sortNewest(store.messages.filter((entry) => entry.userId === userId)).slice(0, limit);
-  const unreadCount = mine.filter((entry) => !entry.readAt).length;
-  return { messages: mine, unreadCount };
+
+  const [messagesRes, unreadRes] = await Promise.all([
+    supabase
+      .from("inbox_messages")
+      .select("*")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false })
+      .limit(limit),
+    supabase
+      .from("inbox_messages")
+      .select("id", { head: true, count: "exact" })
+      .eq("user_id", userId)
+      .is("read_at", null),
+  ]);
+
+  const messages = messagesRes.error ? [] : (messagesRes.data ?? []).map(mapInboxRow);
+  const unreadCount = unreadRes.error ? 0 : Number(unreadRes.count ?? 0);
+
+  return { messages, unreadCount };
 }
 
 export async function pushInboxMessage(
   userIdInput: string,
   input: { type?: InboxMessageType; title: string; message: string }
 ) {
-  return withWriteLock(async () => {
-    const userId = String(userIdInput ?? "").trim();
-    if (!userId) return null;
+  const userId = String(userIdInput ?? "").trim();
+  if (!userId) return null;
 
-    const next: InboxMessage = {
-      id: crypto.randomUUID(),
-      userId,
+  const { data, error } = await supabase
+    .from("inbox_messages")
+    .insert({
+      user_id: userId,
       type: normalizeType(input.type),
       title: String(input.title ?? "").trim() || "Update",
       message: String(input.message ?? "").trim(),
-      createdAt: new Date().toISOString(),
-    };
+      created_at: new Date().toISOString(),
+    })
+    .select("*")
+    .single();
 
-    const store = await readStore();
-    store.messages.unshift(next);
-    await writeStore(store);
-    return next;
-  });
+  if (error || !data) return null;
+  return mapInboxRow(data);
 }
 
 export async function pushInboxMessageMany(
   userIdsInput: string[],
   input: { type?: InboxMessageType; title: string; message: string }
 ) {
-  return withWriteLock(async () => {
-    const userIds = Array.from(
-      new Set(
-        (Array.isArray(userIdsInput) ? userIdsInput : [])
-          .map((userId) => String(userId ?? "").trim())
-          .filter(Boolean)
-      )
-    );
-    if (userIds.length === 0) return [];
+  const userIds = Array.from(
+    new Set(
+      (Array.isArray(userIdsInput) ? userIdsInput : [])
+        .map((userId) => String(userId ?? "").trim())
+        .filter(Boolean)
+    )
+  );
+  if (userIds.length === 0) return [];
 
-    const now = new Date().toISOString();
-    const type = normalizeType(input.type);
-    const title = String(input.title ?? "").trim() || "Update";
-    const message = String(input.message ?? "").trim();
-    const next = userIds.map((userId) => ({
-      id: crypto.randomUUID(),
-      userId,
-      type,
-      title,
-      message,
-      createdAt: now,
-    } satisfies InboxMessage));
+  const now = new Date().toISOString();
+  const payload = userIds.map((userId) => ({
+    user_id: userId,
+    type: normalizeType(input.type),
+    title: String(input.title ?? "").trim() || "Update",
+    message: String(input.message ?? "").trim(),
+    created_at: now,
+  }));
 
-    const store = await readStore();
-    store.messages.unshift(...next);
-    await writeStore(store);
-    return next;
-  });
+  const { data, error } = await supabase
+    .from("inbox_messages")
+    .insert(payload)
+    .select("*");
+
+  if (error || !data) return [];
+  return (data ?? []).map(mapInboxRow);
 }
 
 export async function markInboxMessageRead(userIdInput: string, messageIdInput: string) {
-  return withWriteLock(async () => {
-    const userId = String(userIdInput ?? "").trim();
-    const messageId = String(messageIdInput ?? "").trim();
-    if (!userId || !messageId) return null;
+  const userId = String(userIdInput ?? "").trim();
+  const messageId = String(messageIdInput ?? "").trim();
+  if (!userId || !messageId) return null;
 
-    const store = await readStore();
-    const idx = store.messages.findIndex(
-      (entry) => entry.id === messageId && entry.userId === userId
-    );
-    if (idx === -1) return null;
+  const { data: current, error: currentError } = await supabase
+    .from("inbox_messages")
+    .select("*")
+    .eq("id", messageId)
+    .eq("user_id", userId)
+    .maybeSingle();
 
-    if (!store.messages[idx].readAt) {
-      store.messages[idx] = {
-        ...store.messages[idx],
-        readAt: new Date().toISOString(),
-      };
-      await writeStore(store);
-    }
-    return store.messages[idx];
-  });
+  if (currentError || !current) return null;
+  if ((current as any).read_at) return mapInboxRow(current);
+
+  const { data, error } = await supabase
+    .from("inbox_messages")
+    .update({ read_at: new Date().toISOString() })
+    .eq("id", messageId)
+    .eq("user_id", userId)
+    .select("*")
+    .single();
+
+  if (error || !data) return null;
+  return mapInboxRow(data);
 }
 
 export async function markAllInboxRead(userIdInput: string) {
-  return withWriteLock(async () => {
-    const userId = String(userIdInput ?? "").trim();
-    if (!userId) return { updated: 0 };
+  const userId = String(userIdInput ?? "").trim();
+  if (!userId) return { updated: 0 };
 
-    const store = await readStore();
-    let updated = 0;
-    const readAt = new Date().toISOString();
-    store.messages = store.messages.map((entry) => {
-      if (entry.userId !== userId || entry.readAt) return entry;
-      updated += 1;
-      return { ...entry, readAt };
-    });
+  const { data, error } = await supabase
+    .from("inbox_messages")
+    .update({ read_at: new Date().toISOString() })
+    .eq("user_id", userId)
+    .is("read_at", null)
+    .select("id");
 
-    if (updated > 0) {
-      await writeStore(store);
-    }
-    return { updated };
-  });
+  if (error) return { updated: 0 };
+  return { updated: (data ?? []).length };
 }
+

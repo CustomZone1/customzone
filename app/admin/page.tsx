@@ -11,6 +11,11 @@ import {
   markWithdrawalPaid,
   registerIncomingPayment,
 } from "@/data/wallet";
+import {
+  getReferralSettingsShared,
+  updateReferralSettingsShared,
+  type ReferralRewardMode,
+} from "@/data/referral";
 
 function formatDateTime(v: string) {
   const d = new Date(v);
@@ -29,6 +34,10 @@ export default function AdminPage() {
   const [winnerAmount, setWinnerAmount] = useState<number>(0);
   const [winnerNote, setWinnerNote] = useState("");
   const [winnerMessage, setWinnerMessage] = useState("");
+  const [referralAmount, setReferralAmount] = useState<number>(0);
+  const [referralMode, setReferralMode] = useState<ReferralRewardMode>("BOTH");
+  const [referralActive, setReferralActive] = useState(false);
+  const [referralMessage, setReferralMessage] = useState("");
   const [refreshTick, setRefreshTick] = useState(0);
   const [overview, setOverview] = useState<Awaited<ReturnType<typeof getAdminWalletOverview>>>({
     adminTxns: [],
@@ -42,9 +51,15 @@ export default function AdminPage() {
   useEffect(() => {
     let active = true;
     (async () => {
-      const next = await getAdminWalletOverview();
+      const [next, referralSettings] = await Promise.all([
+        getAdminWalletOverview(),
+        getReferralSettingsShared(),
+      ]);
       if (!active) return;
       setOverview(next);
+      setReferralAmount(Number(referralSettings.rewardAmount ?? 0));
+      setReferralMode(referralSettings.rewardMode ?? "BOTH");
+      setReferralActive(Boolean(referralSettings.active));
     })();
 
     return () => {
@@ -109,6 +124,23 @@ export default function AdminPage() {
     refreshWalletState();
   }
 
+  async function onSaveReferralSettings() {
+    setReferralMessage("");
+    const res = await updateReferralSettingsShared({
+      rewardAmount: Number(referralAmount),
+      rewardMode: referralMode,
+      active: referralActive,
+    });
+    if (!res.ok) {
+      setReferralMessage(res.reason);
+      return;
+    }
+    setReferralMessage(
+      `Saved referral settings: Rs ${res.settings.rewardAmount}, mode ${res.settings.rewardMode}, ${res.settings.active ? "active" : "inactive"}.`
+    );
+    refreshWalletState();
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -147,6 +179,62 @@ export default function AdminPage() {
         <p className="mt-3 text-xs text-zinc-400">
           To upload room ID/password: open List Tournaments, then click Edit Room on the target tournament.
         </p>
+      </div>
+
+      <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+        <h2 className="text-lg font-semibold text-white">Referral Rewards</h2>
+        <p className="mt-1 text-sm text-zinc-300">
+          Set one global amount for all referral codes and choose who receives it.
+        </p>
+
+        <div className="mt-3 grid gap-3 sm:grid-cols-3">
+          <div>
+            <label className="text-sm text-zinc-300">Reward Amount (Rs)</label>
+            <input
+              type="number"
+              min={0}
+              value={referralAmount}
+              onChange={(e) => setReferralAmount(Number(e.target.value))}
+              className="mt-2 w-full rounded-lg border border-white/10 bg-zinc-950 px-3 py-2 text-zinc-100"
+            />
+          </div>
+
+          <div>
+            <label className="text-sm text-zinc-300">Reward To</label>
+            <select
+              value={referralMode}
+              onChange={(e) => setReferralMode(e.target.value as ReferralRewardMode)}
+              className="mt-2 w-full rounded-lg border border-white/10 bg-zinc-950 px-3 py-2 text-zinc-100"
+            >
+              <option value="BOTH">Both</option>
+              <option value="REFERRER">Referrer only</option>
+              <option value="NEW_USER">New user only</option>
+            </select>
+          </div>
+
+          <div className="flex items-end">
+            <label className="inline-flex items-center gap-2 text-sm text-zinc-200">
+              <input
+                type="checkbox"
+                checked={referralActive}
+                onChange={(e) => setReferralActive(e.target.checked)}
+              />
+              Referral Active
+            </label>
+          </div>
+        </div>
+
+        <div className="mt-4">
+          <button
+            type="button"
+            onClick={onSaveReferralSettings}
+            className="rounded-lg bg-white px-3 py-2 text-sm font-medium text-zinc-900 hover:bg-zinc-200"
+          >
+            Save Referral Settings
+          </button>
+        </div>
+
+        {referralMessage ? <p className="mt-3 text-sm text-zinc-200">{referralMessage}</p> : null}
       </div>
 
       <div className="rounded-xl border border-white/10 bg-white/5 p-4">

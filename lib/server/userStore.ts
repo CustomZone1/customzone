@@ -1,6 +1,12 @@
 import { randomBytes, scryptSync, timingSafeEqual } from "crypto";
-import { promises as fs } from "fs";
-import path from "path";
+import { supabase } from "@/lib/supabaseServer";
+import {
+  applyReferralOnSignup,
+  findUserByReferralCode,
+  generateUniqueReferralCode,
+  normalizeReferralCodeInput,
+  pushOwnReferralCodeInbox,
+} from "@/lib/server/referralStore";
 
 export type PublicUser = {
   id: string;
@@ -8,14 +14,15 @@ export type PublicUser = {
   createdAt: string;
 };
 
-type UserRecord = PublicUser & {
-  usernameLower: string;
-  passwordSalt: string;
-  passwordHash: string;
-};
-
-type UserStoreFile = {
-  users: UserRecord[];
+type UserRow = {
+  id: string;
+  username: string;
+  username_lower: string;
+  password_salt: string;
+  password_hash: string;
+  referral_code?: string | null;
+  referred_by_user_id?: string | null;
+  created_at: string;
 };
 
 export type CreateUserResult =
@@ -31,17 +38,14 @@ export type LoginUserResult =
   | { ok: true; user: PublicUser }
   | { ok: false; code: "INVALID_CREDENTIALS"; reason: string };
 
-const DB_FILE = path.join(process.cwd(), "data", "users.db.json");
 const USERNAME_REGEX = /^[a-z0-9_]{4,24}$/i;
 const MIN_PASSWORD_LENGTH = 6;
 
-let writeQueue: Promise<void> = Promise.resolve();
-
-function toPublicUser(user: UserRecord): PublicUser {
+function toPublicUser(row: Pick<UserRow, "id" | "username" | "created_at">): PublicUser {
   return {
-    id: user.id,
-    username: user.username,
-    createdAt: user.createdAt,
+    id: String(row.id),
+    username: String(row.username),
+    createdAt: String(row.created_at),
   };
 }
 
@@ -129,8 +133,8 @@ function buildSuggestionCandidates(inputUsername: string) {
     candidates.push(`${last}${middle}${first}`);
   }
 
-  const lettersOnly = tokens.filter((t) => /^[a-z]+$/.test(t)).join("");
-  const digitsOnly = tokens.filter((t) => /^\d+$/.test(t)).join("");
+  const lettersOnly = tokens.filter((token) => /^[a-z]+$/.test(token)).join("");
+  const digitsOnly = tokens.filter((token) => /^\d+$/.test(token)).join("");
   if (lettersOnly && digitsOnly) {
     candidates.push(`${digitsOnly}${lettersOnly}`);
     candidates.push(`${lettersOnly}${digitsOnly}`);
@@ -176,65 +180,27 @@ function suggestAvailableUsername(inputUsername: string, taken: Set<string>) {
   return `player${Date.now().toString().slice(-5)}`;
 }
 
-async function ensureStoreFile() {
-  try {
-    await fs.access(DB_FILE);
-  } catch {
-    const initial: UserStoreFile = { users: [] };
-    await fs.writeFile(DB_FILE, JSON.stringify(initial, null, 2), "utf8");
-  }
-}
+async function getTakenUsernames() {
+  const { data, error } = await supabase
+    .from("users")
+    .select("username_lower");
 
-async function readStore(): Promise<UserStoreFile> {
-  await ensureStoreFile();
-  const raw = await fs.readFile(DB_FILE, "utf8");
-  try {
-    const parsed = JSON.parse(raw) as Partial<UserStoreFile>;
-    const users = Array.isArray(parsed?.users) ? parsed.users : [];
-    return {
-      users: users
-        .map((user) => {
-          const username = String(user?.username ?? "").trim();
-          const usernameLower = normalizeUsername(String(user?.usernameLower ?? username));
-          const passwordSalt = String(user?.passwordSalt ?? "");
-          const passwordHash = String(user?.passwordHash ?? "");
-          if (!username || !usernameLower || !passwordSalt || !passwordHash) return null;
-          return {
-            id: String(user?.id ?? crypto.randomUUID()),
-            username,
-            usernameLower,
-            passwordSalt,
-            passwordHash,
-            createdAt: String(user?.createdAt ?? new Date().toISOString()),
-          } satisfies UserRecord;
-        })
-        .filter(Boolean) as UserRecord[],
-    };
-  } catch {
-    return { users: [] };
-  }
-}
-
-async function writeStore(data: UserStoreFile) {
-  await ensureStoreFile();
-  await fs.writeFile(DB_FILE, JSON.stringify(data, null, 2), "utf8");
-}
-
-function withWriteLock<T>(operation: () => Promise<T>): Promise<T> {
-  const next = writeQueue.then(operation, operation);
-  writeQueue = next.then(
-    () => undefined,
-    () => undefined
+  if (error) return new Set<string>();
+  return new Set(
+    (data ?? [])
+      .map((row) => String((row as any).username_lower ?? "").trim())
+      .filter(Boolean)
   );
-  return next;
 }
 
 export async function createUserAccount(input: {
   username: string;
   password: string;
+  referralCode?: string;
 }): Promise<CreateUserResult> {
   const username = String(input.username ?? "").trim();
   const password = String(input.password ?? "");
+  const referralCodeInput = normalizeReferralCodeInput(String(input.referralCode ?? ""));
 
   const usernameValidation = validateUsername(username);
   if (!usernameValidation.ok) {
@@ -254,39 +220,120 @@ export async function createUserAccount(input: {
     };
   }
 
-  return withWriteLock(async () => {
-    const store = await readStore();
-    const usernameLower = normalizeUsername(username);
-    const takenSet = new Set(store.users.map((u) => u.usernameLower));
-    const existing = store.users.find((u) => u.usernameLower === usernameLower);
-    if (existing) {
+  const usernameLower = normalizeUsername(username);
+  const { data: existing, error: existingError } = await supabase
+    .from("users")
+    .select("id")
+    .eq("username_lower", usernameLower)
+    .maybeSingle();
+
+  if (existingError) {
+    return {
+      ok: false,
+      code: "INVALID_USERNAME",
+      reason: "Could not create account right now.",
+    };
+  }
+
+  if (existing) {
+    const taken = await getTakenUsernames();
+    return {
+      ok: false,
+      code: "USERNAME_TAKEN",
+      reason: "Username already taken.",
+      suggestion: suggestAvailableUsername(username, taken),
+    };
+  }
+
+  const passwordSalt = randomBytes(16).toString("hex");
+  const passwordHash = hashPassword(password, passwordSalt);
+  let ownReferralCode = "";
+  try {
+    ownReferralCode = await generateUniqueReferralCode(username);
+  } catch {
+    ownReferralCode = "";
+  }
+
+  let referredByUserId: string | null = null;
+  if (referralCodeInput) {
+    const referrer = await findUserByReferralCode(referralCodeInput);
+    if (referrer) {
+      referredByUserId = referrer.id;
+    }
+  }
+  let data: any = null;
+  let error: any = null;
+
+  ({ data, error } = await supabase
+    .from("users")
+    .insert({
+      username,
+      password_salt: passwordSalt,
+      password_hash: passwordHash,
+      referral_code: ownReferralCode || null,
+      referred_by_user_id: referredByUserId,
+    })
+    .select("id, username, created_at, referral_code")
+    .single());
+
+  if (error) {
+    const missingReferralColumns =
+      String(error.message ?? "").toLowerCase().includes("referral_code") ||
+      String(error.message ?? "").toLowerCase().includes("referred_by_user_id");
+    if (missingReferralColumns) {
+      ({ data, error } = await supabase
+        .from("users")
+        .insert({
+          username,
+          password_salt: passwordSalt,
+          password_hash: passwordHash,
+        })
+        .select("id, username, created_at")
+        .single());
+      ownReferralCode = "";
+      referredByUserId = null;
+    }
+  }
+
+  if (error || !data) {
+    const duplicate = String(error?.message ?? "").toLowerCase().includes("duplicate");
+    if (duplicate) {
+      const taken = await getTakenUsernames();
       return {
         ok: false,
         code: "USERNAME_TAKEN",
         reason: "Username already taken.",
-        suggestion: suggestAvailableUsername(username, takenSet),
+        suggestion: suggestAvailableUsername(username, taken),
       };
     }
 
-    const salt = randomBytes(16).toString("hex");
-    const passwordHash = hashPassword(password, salt);
-    const user: UserRecord = {
-      id: crypto.randomUUID(),
-      username,
-      usernameLower,
-      passwordSalt: salt,
-      passwordHash,
-      createdAt: new Date().toISOString(),
-    };
-
-    store.users.push(user);
-    await writeStore(store);
-
     return {
-      ok: true,
-      user: toPublicUser(user),
+      ok: false,
+      code: "INVALID_USERNAME",
+      reason: "Could not create account right now.",
     };
-  });
+  }
+
+  const createdUser = toPublicUser(data as Pick<UserRow, "id" | "username" | "created_at">);
+  const createdReferralCode = String((data as any)?.referral_code ?? ownReferralCode ?? "").trim();
+  if (createdReferralCode) {
+    await pushOwnReferralCodeInbox(createdUser.id, createdReferralCode);
+  }
+
+  if (referredByUserId && referredByUserId !== createdUser.id) {
+    await applyReferralOnSignup({
+      newUserId: createdUser.id,
+      newUsername: createdUser.username,
+      newUserReferralCode: createdReferralCode,
+      referredByUserId,
+      referredByCode: referralCodeInput,
+    });
+  }
+
+  return {
+    ok: true,
+    user: createdUser,
+  };
 }
 
 export async function loginUserAccount(input: {
@@ -304,9 +351,13 @@ export async function loginUserAccount(input: {
     };
   }
 
-  const store = await readStore();
-  const user = store.users.find((u) => u.usernameLower === username);
-  if (!user) {
+  const { data, error } = await supabase
+    .from("users")
+    .select("id, username, created_at, password_salt, password_hash")
+    .eq("username_lower", username)
+    .maybeSingle();
+
+  if (error || !data) {
     return {
       ok: false,
       code: "INVALID_CREDENTIALS",
@@ -314,7 +365,12 @@ export async function loginUserAccount(input: {
     };
   }
 
-  const ok = passwordsMatch(password, user.passwordSalt, user.passwordHash);
+  const row = data as Pick<
+    UserRow,
+    "id" | "username" | "created_at" | "password_salt" | "password_hash"
+  >;
+
+  const ok = passwordsMatch(password, row.password_salt, row.password_hash);
   if (!ok) {
     return {
       ok: false,
@@ -325,26 +381,36 @@ export async function loginUserAccount(input: {
 
   return {
     ok: true,
-    user: toPublicUser(user),
+    user: toPublicUser(row),
   };
 }
 
 export async function findUserByUsername(usernameInput: string): Promise<PublicUser | null> {
-  const username = normalizeUsername(String(usernameInput ?? ""));
-  if (!username) return null;
+  const usernameLower = normalizeUsername(String(usernameInput ?? ""));
+  if (!usernameLower) return null;
 
-  const store = await readStore();
-  const user = store.users.find((entry) => entry.usernameLower === username);
-  return user ? toPublicUser(user) : null;
+  const { data, error } = await supabase
+    .from("users")
+    .select("id, username, created_at")
+    .eq("username_lower", usernameLower)
+    .maybeSingle();
+
+  if (error || !data) return null;
+  return toPublicUser(data as Pick<UserRow, "id" | "username" | "created_at">);
 }
 
 export async function findUserById(userIdInput: string): Promise<PublicUser | null> {
   const userId = String(userIdInput ?? "").trim();
   if (!userId) return null;
 
-  const store = await readStore();
-  const user = store.users.find((entry) => entry.id === userId);
-  return user ? toPublicUser(user) : null;
+  const { data, error } = await supabase
+    .from("users")
+    .select("id, username, created_at")
+    .eq("id", userId)
+    .maybeSingle();
+
+  if (error || !data) return null;
+  return toPublicUser(data as Pick<UserRow, "id" | "username" | "created_at">);
 }
 
 export async function findUsersByIds(userIdsInput: string[]): Promise<Record<string, PublicUser>> {
@@ -357,19 +423,29 @@ export async function findUsersByIds(userIdsInput: string[]): Promise<Record<str
   );
   if (ids.length === 0) return {};
 
-  const wanted = new Set(ids);
-  const store = await readStore();
-  const result: Record<string, PublicUser> = {};
+  const { data, error } = await supabase
+    .from("users")
+    .select("id, username, created_at")
+    .in("id", ids);
 
-  for (const user of store.users) {
-    if (!wanted.has(user.id)) continue;
-    result[user.id] = toPublicUser(user);
+  if (error || !data) return {};
+
+  const usersById: Record<string, PublicUser> = {};
+  for (const row of data ?? []) {
+    const publicUser = toPublicUser(row as Pick<UserRow, "id" | "username" | "created_at">);
+    usersById[publicUser.id] = publicUser;
   }
-
-  return result;
+  return usersById;
 }
 
 export async function listPublicUsers(): Promise<PublicUser[]> {
-  const store = await readStore();
-  return store.users.map(toPublicUser);
+  const { data, error } = await supabase
+    .from("users")
+    .select("id, username, created_at")
+    .order("created_at", { ascending: false });
+
+  if (error || !data) return [];
+  return (data ?? []).map((row) =>
+    toPublicUser(row as Pick<UserRow, "id" | "username" | "created_at">)
+  );
 }

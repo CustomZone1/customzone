@@ -11,6 +11,7 @@ export async function POST(req: Request) {
     const username = String(body?.username ?? "");
     const password = String(body?.password ?? "");
     const confirmPassword = String(body?.confirmPassword ?? "");
+    const referralCode = String(body?.referralCode ?? "");
 
     if (!password || !confirmPassword) {
       return NextResponse.json(
@@ -26,7 +27,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const result = await createUserAccount({ username, password });
+    const result = await createUserAccount({ username, password, referralCode });
     if (result.ok === false) {
       const status = result.code === "USERNAME_TAKEN" ? 409 : 400;
       return NextResponse.json(

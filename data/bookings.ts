@@ -193,7 +193,7 @@ export async function getTournamentBookingsShared(tournamentId: string): Promise
     );
     return (data.bookings ?? []).map(normalizeBooking).sort((a, b) => a.slotNumber - b.slotNumber);
   } catch {
-    return getTournamentBookings(tournamentId);
+    return [];
   }
 }
 
@@ -217,7 +217,7 @@ export async function getUserBookingShared(
     );
     return data.booking ? normalizeBooking(data.booking) : null;
   } catch {
-    return uid ? getUserBooking(tournamentId, uid) : null;
+    return null;
   }
 }
 
@@ -242,7 +242,7 @@ export async function getUserBookingsShared(
     );
     return (data.bookings ?? []).map(normalizeBooking).sort((a, b) => a.slotNumber - b.slotNumber);
   } catch {
-    return uid ? getUserBookings(tournamentId, uid) : [];
+    return [];
   }
 }
 
@@ -310,19 +310,6 @@ export async function addBookingShared(
     throw new Error(`Request failed (${res.status})`);
   } catch (e: any) {
     const reason = String(e?.message ?? "Booking failed.");
-
-    // Fallback for local-only mode.
-    addBooking({
-      tournamentId,
-      userId: uid,
-      username,
-      playerName: captain,
-      teamMembers: members,
-      teamSize,
-    });
-    const fallback = getUserBooking(tournamentId, uid);
-    if (fallback) return { ok: true as const, booking: fallback };
-
     return { ok: false as const, reason };
   }
 }
@@ -363,29 +350,6 @@ export async function updateBookingTeamMembersShared(
 
     return { ok: false as const, reason: payload.error || `Request failed (${res.status})` };
   } catch (e: any) {
-    const reason = String(e?.message ?? "Could not update team names.");
-
-    // Local fallback update
-    const bookings = getBookings();
-    const idx = bookings.findIndex(
-      (b) =>
-        b.tournamentId === tournamentId &&
-        b.id === id &&
-        String(b.userId ?? "").trim() === uid
-    );
-    if (idx !== -1) {
-      const current = bookings[idx];
-      const members = normalizeTeamMembers(teamMembers, current.playerName, current.teamSize);
-      const next = {
-        ...current,
-        playerName: members[0] ?? current.playerName,
-        teamMembers: members,
-      };
-      bookings[idx] = next;
-      setBookings(bookings);
-      return { ok: true as const, booking: next };
-    }
-
-    return { ok: false as const, reason };
+    return { ok: false as const, reason: String(e?.message ?? "Could not update team names.") };
   }
 }

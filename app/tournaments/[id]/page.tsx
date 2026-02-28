@@ -18,7 +18,6 @@ import {
 import { getRoomInfoShared, type RoomInfo } from "@/data/rooms";
 import {
   getWallet,
-  spendCredits,
   claimCreditsByTxnId,
   requestWithdrawal,
   UPI_RECEIVER_ID,
@@ -482,6 +481,7 @@ export default function TournamentDetailPage() {
   const [teamSaveMsg, setTeamSaveMsg] = useState("");
   const [teamSaveType, setTeamSaveType] = useState<"success" | "error" | null>(null);
   const [showRulesModal, setShowRulesModal] = useState(false);
+  const [bookingBusy, setBookingBusy] = useState(false);
 
   function scrollPastNavTabs() {
     const tabs = document.querySelector<HTMLElement>("[data-cz-nav-tabs]");
@@ -702,6 +702,7 @@ export default function TournamentDetailPage() {
   }
 
   async function onBookSlot() {
+    if (bookingBusy) return;
     setError("");
     setTeamSaveMsg("");
     setTeamSaveType(null);
@@ -729,27 +730,14 @@ export default function TournamentDetailPage() {
       return;
     }
 
-    // spend wallet first (prevents booking without payment)
     const fee = Number((tournament as any).entryFee ?? 0);
     if (fee > 0 && wallet < fee) {
       setError("Not enough wallet balance.");
       return;
     }
 
+    setBookingBusy(true);
     try {
-      if (fee > 0) {
-        const spend = await spendCredits(
-          authUser.id,
-          fee,
-          `Entry fee - ${(tournament as any).name ?? "Tournament"}`
-        );
-        if (!spend.ok) {
-          setError(spend.reason || "Not enough wallet balance.");
-          return;
-        }
-      }
-
-      // booking record
       const result = await addBookingShared(
         tournamentId,
         authUser.id,
@@ -786,6 +774,8 @@ export default function TournamentDetailPage() {
       setRoomAccessAllowed(Boolean(roomData.access));
     } catch (e: any) {
       setError(e?.message || "Booking failed. Try again.");
+    } finally {
+      setBookingBusy(false);
     }
   }
 
@@ -1296,14 +1286,16 @@ export default function TournamentDetailPage() {
           {!roomPublished ? (
             <button
               onClick={onBookSlot}
-              disabled={!authUser || status !== "OPEN" || slotsLeft <= 0}
+              disabled={bookingBusy || !authUser || status !== "OPEN" || slotsLeft <= 0}
               className={`mt-4 w-full rounded-lg px-4 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50 ${
                 hasAccountBooking
                   ? "border border-orange-400/45 bg-orange-500/25 text-orange-50 hover:bg-orange-500/35"
                   : "bg-white text-black hover:bg-zinc-200"
               }`}
             >
-              {!authUser
+              {bookingBusy
+                ? "Booking..."
+                : !authUser
                 ? "Login Required"
                 : hasAccountBooking
                   ? "BOOK AGAIN"

@@ -21,6 +21,7 @@ export default function AuthPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [referralCode, setReferralCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [suggestion, setSuggestion] = useState("");
@@ -66,7 +67,7 @@ export default function AuthPage() {
       const endpoint = mode === "signup" ? "/api/auth/signup" : "/api/auth/login";
       const body =
         mode === "signup"
-          ? { username: trimmedUsername, password, confirmPassword }
+          ? { username: trimmedUsername, password, confirmPassword, referralCode: referralCode.trim() }
           : { username: trimmedUsername, password };
 
       const res = await fetch(endpoint, {
@@ -170,6 +171,19 @@ export default function AuthPage() {
                 placeholder="Re-enter password"
                 className="mt-2 w-full rounded-lg border border-white/10 bg-zinc-950 px-3 py-2 text-zinc-100 outline-none placeholder:text-zinc-500 focus:border-white/20"
                 autoComplete="new-password"
+              />
+            </label>
+          ) : null}
+
+          {mode === "signup" ? (
+            <label className="block text-sm text-zinc-200">
+              Referral Code (optional)
+              <input
+                value={referralCode}
+                onChange={(e) => setReferralCode(e.target.value.toUpperCase())}
+                placeholder="Enter referral code"
+                className="mt-2 w-full rounded-lg border border-white/10 bg-zinc-950 px-3 py-2 text-zinc-100 outline-none placeholder:text-zinc-500 focus:border-white/20"
+                autoComplete="off"
               />
             </label>
           ) : null}
